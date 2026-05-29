@@ -83,14 +83,10 @@ void fini(void) {
   for (item *it = list->next; it; it = it->next) {
     if (it->cnt > 0) {
       if (!printed) {
-        mlog("");
-        mlog("Non-deallocated memory blocks");
-        mlog("\tblock \t\tsize \tref \tcnt");
+        LOG_NONFREED_START();
         printed = 1;
       }
-      char line[128];
-      snprintf(line, sizeof(line), "\t%p \t%zu \t%d", it->ptr, it->size, it->cnt);
-      mlog(line);
+      LOG_BLOCK(it->ptr, it->size, it->cnt);
     }
   }
 
@@ -132,7 +128,7 @@ void *realloc(void *ptr, size_t size) {
     item *it = find(list, ptr);
     if (it == NULL) {
       // never allocated
-      mlog("     *** ILLEGAL_FREE *** (ignoring)");
+      LOG_ILL_FREE();
       // 기존 블록 해제 없이 새로운 할당처럼 동작
       void *newptr = reallocp(NULL, size);
       n_realloc++;
@@ -143,7 +139,7 @@ void *realloc(void *ptr, size_t size) {
     }
     if (it->cnt == 0) {
       // already freed
-      mlog("     *** DOUBLE_FREE *** (ignoring)");
+      LOG_DOUBLE_FREE();
       // 기존 블록 해제 없이 새로운 할당처럼 동작
       void *newptr = reallocp(NULL, size);
       n_realloc++;
@@ -173,17 +169,18 @@ void free(void *ptr) {
 
   // 프리 시도
   LOG_FREE(ptr);
+  if (ptr == NULL) return; // free(NULL)은 아무것도 안 함
 
   // 상태 확인
   item *it = find(list, ptr);
   if (it == NULL) {
     // 불법 해제
-    mlog("*** ILLEGAL_FREE *** (ignoring)");
+    LOG_ILL_FREE();
     return; // 진짜 프리 x
   }
   if (it->cnt == 0) {
     // already freed
-    mlog("*** DOUBLE_FREE *** (ignoring)");
+    LOG_DOUBLE_FREE();
     return; // 진짜 프리 x
   }
   // 정상 경로일 때 dealloc로 통계 업데이트한 다음에 프리

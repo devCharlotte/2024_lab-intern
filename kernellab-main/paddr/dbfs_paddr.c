@@ -43,9 +43,6 @@ static ssize_t read_output(struct file *fp,
 	if (*position > 0)
         	return 0;
 
-	if (copy_from_user(&pckt, user_buffer, sizeof(pckt)))
-        	return -EFAULT;
-
     // read packet from user
     if (copy_from_user(&pckt, user_buffer, sizeof(pckt)))
         return -EFAULT;
@@ -53,11 +50,15 @@ static ssize_t read_output(struct file *fp,
     vaddr = pckt.vaddr;
 
     // [jh] find task using pid
+    rcu_read_lock();
     task = pid_task(find_vpid(pckt.pid), PIDTYPE_PID);
-    if (!task)
+    if (!task) {
+        rcu_read_unlock();
         return -EINVAL;
+    }
 
     mm = task->mm;
+    rcu_read_unlock();
     if (!mm)
         return -EINVAL;
 
@@ -74,17 +75,15 @@ static ssize_t read_output(struct file *fp,
     pmd = pmd_offset(pud, vaddr);
     if (pmd_none(*pmd) || pmd_bad(*pmd)) return -EINVAL;
 
-    pte = pte_offset_map(pmd, vaddr);
+    // pte_offset_map은 6.5부터 모듈에서 못 씀 (x86_64는 highmem이 없어서 kernel 버전으로 충분)
+    pte = pte_offset_kernel(pmd, vaddr);
     if (!pte) return -EINVAL;
 
-    if (!pte_present(*pte)) {
-        pte_unmap(pte);
+    if (!pte_present(*pte))
         return -EINVAL;
-    }
 
     // [jh] PA
     pfn = pte_pfn(*pte);
-    pte_unmap(pte);
 
     pckt.paddr = (pfn << PAGE_SHIFT) | (vaddr & (PAGE_SIZE - 1));
 

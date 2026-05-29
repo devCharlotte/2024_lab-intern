@@ -43,8 +43,11 @@ static ssize_t write_pid_to_input(struct file *fp,
 
 
 	char buf[32];
-	
+	int i;
+
 	// [jh] get pid from user space
+	if (length >= sizeof(buf))
+		return -EINVAL;
 	if (copy_from_user(buf, user_buffer, length))
         return -EFAULT;
     	buf[length] = '\0';
@@ -62,11 +65,14 @@ static ssize_t write_pid_to_input(struct file *fp,
     	output_size = 0;
 	
 	// [jh] find task_struct using pid
-	// find get pid -> pid_task
-	struct pid *pid_struct = find_get_pid(stored_pid);
+	// find_vpid -> pid_task (rcu 안에서)
+	rcu_read_lock();
+	struct pid *pid_struct = find_vpid(stored_pid);
     	struct task_struct *task = pid_task(pid_struct, PIDTYPE_PID);
 
     	if (!task) {
+		rcu_read_unlock();
+		task_count = 0;
         	output_size = scnprintf(output_buf, sizeof(output_buf),
                  	               "Invalid PID: %d\n", stored_pid);
         	return length;
@@ -85,6 +91,15 @@ static ssize_t write_pid_to_input(struct file *fp,
         	task = task->parent;
     	}
 
+	// [jh] init부터 출력되게 거꾸로, task가 사라질 수 있으니 여기서 문자열로 만들어 둠
+	for (i = task_count - 1; i >= 0; i--) {
+		output_size += scnprintf(output_buf + output_size,
+					 sizeof(output_buf) - output_size,
+					 "%s (%d)\n",
+					 task_list[i]->comm, task_list[i]->pid);
+	}
+	rcu_read_unlock();
+
    	return length;
 }
 	
@@ -96,31 +111,15 @@ static ssize_t read_ptree(struct file *fp,
                           size_t length,
                           loff_t *position)
 {
-	char buf[4096];
-	int len = 0;
-    	int i;
+	static const char no_data[] = "Invalid PID or No data\n";
 
-   	if (*position > 0)
-        	return 0;
+    	if (output_size == 0)
+		return simple_read_from_buffer(user_buffer, length, position,
+					       no_data, sizeof(no_data) - 1);
 
-    	if (task_count == 0) {
-        	len = snprintf(buf, sizeof(buf), "Invalid PID or No data\n");
-        	goto out;
-    	}
-
-    	// [jh] ordering
-   	for (i = task_count - 1; i >= 0; i--) {
-        	struct task_struct *t = task_list[i];
-        	len += snprintf(buf + len, sizeof(buf) - len,
-                	        "%s (%d)\n",
-                        	t->comm, t->pid);
-    	}
-out:
-   	if (copy_to_user(user_buffer, buf, len))
-        	return -EFAULT;
-
-    	*position = len;
-    	return len;
+    	// [jh] write에서 만들어 둔 결과 그대로 전달
+	return simple_read_from_buffer(user_buffer, length, position,
+				       output_buf, output_size);
 }
 
 

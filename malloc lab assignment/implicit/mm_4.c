@@ -34,7 +34,7 @@
 
 static void* heap_list = NULL;
 
-static int mm_init(void);
+int mm_init(void);
 static void* extend_heap(size_t words);
 static void* coalesce(void* bp);
 void* mm_malloc(size_t size);
@@ -230,7 +230,7 @@ void* mm_realloc(void* bp, size_t size)
 
     if (new_bp == NULL) return NULL;
 
-    copySize = GET_SIZE(HDPT(old_bp)); // 기존 블록 크기
+    copySize = GET_SIZE(HDPT(old_bp)) - DSIZE; // 기존 블록 크기 (헤더, 풋터 제외)
 
     if (size < copySize) // 재할당할 크기가 기존보다 작으면
         copySize = size; // 원래 size만큼조정

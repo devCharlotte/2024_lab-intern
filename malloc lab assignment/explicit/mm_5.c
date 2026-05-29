@@ -45,7 +45,7 @@
 static void* heap_list = NULL; // 힙 리스트 시작 포인터
 static void* free_list = NULL; // 프리블록 리스트 시작 포인터
 
-static int mm_init(void);
+int mm_init(void);
 static void* extend_heap(size_t words);
 static void* coalesce(void* bp);
 void* mm_malloc(size_t size);
@@ -68,8 +68,8 @@ int mm_init(void)
 
     PUTTER(heap_list, 0);                             // 시작 부분
     PUTTER(heap_list + (1 * WSIZE), PACK(2 * DSIZE, 1)); // 맨 앞 헤더 할당된 것
-    PUTTER(heap_list + (2 * WSIZE), NULL);            // 이전 포인터 null
-    PUTTER(heap_list + (3 * WSIZE), NULL);            // 이후 포인터 null
+    PUTTER(heap_list + (2 * WSIZE), 0);               // 이전 포인터 null
+    PUTTER(heap_list + (3 * WSIZE), 0);               // 이후 포인터 null
     PUTTER(heap_list + (4 * WSIZE), PACK(2 * DSIZE, 1));  // 풋터 
     PUTTER(heap_list + (5 * WSIZE), PACK(0, 1));      // 뒷부분 헤더
 
@@ -160,7 +160,7 @@ void* mm_malloc(size_t size) {
     }
 
     // 적절한 프리 블록 탐색
-    if ((bp = worst_fit(a_size)) != NULL) {
+    if ((bp = first_fit(a_size)) != NULL) {
         place(bp, a_size);
         return bp;  // 프리 블록 적절한 것 발견했다면 return 후 종료
     }
@@ -260,7 +260,7 @@ void* mm_realloc(void* bp, size_t size)
 
     if (new_bp == NULL) return NULL;
 
-    copySize = GET_SIZE(HDPT(old_bp)); // 기존 블록 크기
+    copySize = GET_SIZE(HDPT(old_bp)) - DSIZE; // 기존 블록 크기 (헤더, 풋터 제외)
 
     if (size < copySize) // 재할당할 크기가 기존보다 작으면
         copySize = size; // 원래 size만큼조정

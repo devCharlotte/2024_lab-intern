@@ -81,14 +81,10 @@ void fini(void) {
   for (item *it = list->next; it; it = it->next) {
     if (it->cnt > 0) {
       if (!printed) {
-        mlog("");
-        mlog("Non-deallocated memory blocks");
-        mlog("\tblock \t\tsize \tref \tcnt");
+        LOG_NONFREED_START();
         printed = 1;
       }
-      char line[128];
-      snprintf(line, sizeof(line), "\t%p \t%zu \t%d", it->ptr, it->size, it->cnt);
-      mlog(line);
+      LOG_BLOCK(it->ptr, it->size, it->cnt);
     }
   }
 

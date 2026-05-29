@@ -43,10 +43,12 @@
 #define PRED_FREEPT(bp) (*(void**)(bp)) // 이전 프리블록 포인터
 #define SUCC_FREEPT(bp) (*(void**)(bp + WSIZE)) // 다음 프리블록 포인터
 
+#define LISTLIMIT 20 // 크기별 프리 리스트 개수
+
 static void* heap_list = NULL; // 힙 리스트 시작 포인터
 static void* segregation_list[LISTLIMIT];
 
-static int mm_init(void);
+int mm_init(void);
 static void* extend_heap(size_t words);
 static void* coalesce(void* bp);
 void* mm_malloc(size_t size);
@@ -69,12 +71,14 @@ int mm_init(void)
 
     PUTTER(heap_list, 0);                             // 시작 부분
     PUTTER(heap_list + (1 * WSIZE), PACK(2 * DSIZE, 1)); // 맨 앞 헤더 할당된 것
-    PUTTER(heap_list + (2 * WSIZE), NULL);            // 이전 포인터 null
-    PUTTER(heap_list + (3 * WSIZE), NULL);            // 이후 포인터 null
+    PUTTER(heap_list + (2 * WSIZE), 0);               // 이전 포인터 null
+    PUTTER(heap_list + (3 * WSIZE), 0);               // 이후 포인터 null
     PUTTER(heap_list + (4 * WSIZE), PACK(2 * DSIZE, 1));  // 풋터 
     PUTTER(heap_list + (5 * WSIZE), PACK(0, 1));      // 뒷부분 헤더
 
-    free_list = heap_list + (2 * WSIZE); // 프리 블록 리스트의 시작을 맨 앞 다음 첫 프리블록으로
+    for (int i = 0; i < LISTLIMIT; i++) { // 프리 리스트 초기화
+        segregation_list[i] = NULL;
+    }
 
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL) // 확장 ~
         return -1;
@@ -108,16 +112,19 @@ static void* coalesce(void* bp) {
     size_t size = GET_SIZE(HDPT(bp)); // 현재 블록 크기
 
     if (prev_alloc && next_alloc) { // 이전과 다음 블록 모두 할당된 경우
+        insert_block(bp, size); // 그대로 리스트에 추가
         return bp;
     }
 
     else if (prev_alloc && !next_alloc) { // 다음 블록만 프리 상태인 경우
+        remove_block(NEXT_BLKP(bp)); // 다음 블록을 리스트에서 제거
         size += GET_SIZE(HDPT(NEXT_BLKP(bp))); // 다음 블록 크기 추가
         PUTTER(HDPT(bp), PACK(size, 0)); // 현재 블록 헤더 갱신
         PUTTER(FTPT(bp), PACK(size, 0)); // 현재 블록 풋터 갱신
     }
 
     else if (!prev_alloc && next_alloc) { // 이전 블록만 프리 상태인 경우
+        remove_block(PREV_BLKP(bp)); // 이전 블록을 리스트에서 제거
         size += GET_SIZE(HDPT(PREV_BLKP(bp))); // 이전 블록 크기 추가
         PUTTER(FTPT(bp), PACK(size, 0)); // 현재 블록 풋터 갱신
         PUTTER(HDPT(PREV_BLKP(bp)), PACK(size, 0)); // 이전 블록 헤더 갱신
@@ -125,12 +132,15 @@ static void* coalesce(void* bp) {
     }
 
     else { // 이전과 다음 블록 모두 프리 상태인 경우
+        remove_block(PREV_BLKP(bp)); // 이전, 다음 블록을 리스트에서 제거
+        remove_block(NEXT_BLKP(bp));
         size += GET_SIZE(HDPT(PREV_BLKP(bp))) + GET_SIZE(HDPT(NEXT_BLKP(bp))); // 이전과 다음 블록 크기 추가
         PUTTER(HDPT(PREV_BLKP(bp)), PACK(size, 0)); // 이전 블록 헤더 갱신
         PUTTER(FTPT(NEXT_BLKP(bp)), PACK(size, 0)); // 다음 블록 풋터 갱신
         bp = PREV_BLKP(bp); // 블록 포인터 이전 블록으로 이동
     }
 
+    insert_block(bp, size); // 통합된 블록을 리스트에 추가
     return bp; // 통합된 블록 반환
 }
 
@@ -154,7 +164,7 @@ void* mm_malloc(size_t size) {
     }
 
     // 적절한 프리 블록 탐색
-    if ((bp = worst_fit(a_size)) != NULL) {
+    if ((bp = best_fit(a_size)) != NULL) {
         place(bp, a_size);
         return bp;  // 프리 블록 적절한 것 발견했다면 return 후 종료
     }
@@ -188,6 +198,8 @@ static void* best_fit(size_t a_size) {
 // place
 static void place(void* bp, size_t a_size) {
     size_t csize = GET_SIZE(HDPT(bp)); // 현재 블록 크기
+
+    remove_block(bp); // 할당할 블록은 리스트에서 제거
 
     if ((csize - a_size) >= (2 * DSIZE)) { // 블록 분할 가능한 경우
         PUTTER(HDPT(bp), PACK(a_size, 1)); // 블록 할당 헤더 설정
@@ -224,7 +236,7 @@ void* mm_realloc(void* bp, size_t size)
 
     if (new_bp == NULL) return NULL;
 
-    copySize = GET_SIZE(HDPT(old_bp)); // 기존 블록 크기
+    copySize = GET_SIZE(HDPT(old_bp)) - DSIZE; // 기존 블록 크기 (헤더, 풋터 제외)
 
     if (size < copySize) // 재할당할 크기가 기존보다 작으면
         copySize = size; // 원래 size만큼조정
@@ -264,9 +276,10 @@ static void insert_block(void* bp, size_t size) {
     int i = 0; // 리스트 인덱스
     void* search_bp = NULL; // 검색 블록 포인터
     void* insert_bp = NULL; // 삽입 위치 블록 포인터
+    size_t tmp = size; // 리스트 인덱스 계산용
 
-    while ((i < LISTLIMIT - 1) && (size > 1)) { // 적절한 리스트 인덱스 찾기
-        size >>= 1;
+    while ((i < LISTLIMIT - 1) && (tmp > 1)) { // 적절한 리스트 인덱스 찾기
+        tmp >>= 1;
         i++;
     }
 

@@ -10,8 +10,8 @@
 #include "memlib.h"
 
 #define ALIGNMENT 8
-#define ALIGN(size) (((size) + (ALIGNNMENT-1)) & ~0x7)
-#define SIZE_T_SIZZE (ALIGNsizeof(size_t))
+#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
 /////// 
 #define WSIZE       4           
@@ -37,7 +37,7 @@
 
 static void* heap_list = NULL;
 
-static int mm_init(void);
+int mm_init(void);
 static void* extend_heap(size_t words);
 static void* coalesce(void* bp);
 void* mm_malloc(size_t size);
@@ -173,28 +173,26 @@ static void* first_fit(size_t a_size) {
 }
 
 // place
-static void place(void* bp, size_t a_size) { 
-    static void place(void* bp, size_t a_size) {  // 블록 포인터와 할당할 크기
-        size_t c_size = GET_SIZE(HDPT(bp)); // 현재 블록의 크기
+static void place(void* bp, size_t a_size) {  // 블록 포인터와 할당할 크기
+    size_t c_size = GET_SIZE(HDPT(bp)); // 현재 블록의 크기
 
-        if ((c_size - a_size) >= (2 * (DSIZE))) { // 요청된 크기를 최소 크기로 쪼갤 수 있다면
+    if ((c_size - a_size) >= (2 * (DSIZE))) { // 요청된 크기를 최소 크기로 쪼갤 수 있다면
 
-            PUTTER(HDPT(bp), PACK(a_size, 1)); // 현재 헤더와 풋터에 할당 정보와 크기 업데이트
-            PUTTER(FTPT(bp), PACK(a_size, 1));
+        PUTTER(HDPT(bp), PACK(a_size, 1)); // 현재 헤더와 풋터에 할당 정보와 크기 업데이트
+        PUTTER(FTPT(bp), PACK(a_size, 1));
 
-            bp = NEXT_BLKP(bp); // 다음 블록으로 이동
+        bp = NEXT_BLKP(bp); // 다음 블록으로 이동
 
-            // 남은 공간의 헤더와 풋터는 할당되지 않은 상태 0
-            PUTTER(HDPT(bp), PACK(c_size - a_size, 0));
-            PUTTER(FTPT(bp), PACK(c_size - a_size, 0));
-        }
-        else { // 블록 크기 불충분해서 분할 불가 (남은 공간이 최소보다 작아서)
-            PUTTER(HDPT(bp), PACK(c_size, 1));  // 할당 상태 1
-            PUTTER(FTPT(bp), PACK(c_size, 1));
-        }
+        // 남은 공간의 헤더와 풋터는 할당되지 않은 상태 0
+        PUTTER(HDPT(bp), PACK(c_size - a_size, 0));
+        PUTTER(FTPT(bp), PACK(c_size - a_size, 0));
     }
-
+    else { // 블록 크기 불충분해서 분할 불가 (남은 공간이 최소보다 작아서)
+        PUTTER(HDPT(bp), PACK(c_size, 1));  // 할당 상태 1
+        PUTTER(FTPT(bp), PACK(c_size, 1));
+    }
 }
+
 // mm_free
 void mm_free(void* bp)
 {
@@ -216,7 +214,7 @@ void* mm_realloc(void* bp, size_t size)
 
     if (new_bp == NULL) return NULL; 
 
-    copySize = GET_SIZE(HDPT(old_bp)); // 기존 블록 크기
+    copySize = GET_SIZE(HDPT(old_bp)) - DSIZE; // 기존 블록 크기 (헤더, 풋터 제외)
 
     if (size < copySize) // 재할당할 크기가 기존보다 작으면
         copySize = size; // 원래 size만큼조정
