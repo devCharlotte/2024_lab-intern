@@ -280,10 +280,14 @@ void* mm_realloc(void* bp, size_t size)
         return bp;
     }
 
-    // 힙의 마지막 블록이면 모자란 만큼만 힙을 늘림
+    // 힙 끝에 붙어 있으면 (바로 뒤가 epilogue 거나, 뒤 프리 블록 다음이 epilogue)
+    // 모자란 만큼만 힙을 늘려서 뒤에 붙임
     next = NEXT_BLKP(bp);
-    if (GET_SIZE(HDPT(next)) == 0) {
-        if (extend_heap(MAX(a_size - c_size, MIN_BLOCK) / WSIZE) == NULL)
+    if (GET_SIZE(HDPT(next)) == 0 ||
+        (!IS_ALLOCATED(HDPT(next)) && GET_SIZE(HDPT(NEXT_BLKP(next))) == 0)) {
+        size_t have = c_size + (IS_ALLOCATED(HDPT(next)) ? 0 : GET_SIZE(HDPT(next)));
+
+        if (have < a_size && extend_heap(MAX(a_size - have, MIN_BLOCK) / WSIZE) == NULL)
             return NULL;
     }
 
