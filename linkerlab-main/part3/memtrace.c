@@ -123,43 +123,32 @@ void *calloc(size_t nmemb, size_t size) {
 void *realloc(void *ptr, size_t size) {
   if (silent) return reallocp(ptr, size);
 
-  // ptr == NULL -> malloc 동일하게 정상 경로로 처리
+  void *oldptr = ptr;
+
+  // 할당한 적 없거나 이미 free 된 블록이면 원래 블록은 건드리지 않고
+  // realloc(NULL, size) 즉 새로 할당하는 것처럼 처리
   if (ptr != NULL) {
     item *it = find(list, ptr);
-    if (it == NULL) {
-      // never allocated
-      LOG_ILL_FREE();
-      // 기존 블록 해제 없이 새로운 할당처럼 동작
-      void *newptr = reallocp(NULL, size);
-      n_realloc++;
-      n_allocb += size;
-      if (newptr) alloc(list, newptr, size);
-      LOG_REALLOC(ptr, size, newptr);
-      return newptr;
+    if (it == NULL || it->cnt == 0) {
+      if (it == NULL) LOG_ILL_FREE();
+      else            LOG_DOUBLE_FREE();
+      ptr = NULL;
     }
-    if (it->cnt == 0) {
-      // already freed
-      LOG_DOUBLE_FREE();
-      // 기존 블록 해제 없이 새로운 할당처럼 동작
-      void *newptr = reallocp(NULL, size);
-      n_realloc++;
-      n_allocb += size;
-      if (newptr) alloc(list, newptr, size);
-      LOG_REALLOC(ptr, size, newptr);
-      return newptr;
-    }
-
-    // 정상일 때 old 블록을 dealloc하여 freed_total 업데이트
-    it = dealloc(list, ptr);
-    if (it) n_freeb += it->size;
   }
 
-  // 실제 리얼록
   void *newptr = reallocp(ptr, size);
   n_realloc++;
   n_allocb += size;
-  if (newptr) alloc(list, newptr, size);
-  LOG_REALLOC(ptr, size, newptr);
+  LOG_REALLOC(oldptr, size, newptr);
+
+  // 실패한 경우(size > 0 인데 NULL)에는 원래 블록이 그대로 살아 있음
+  if (newptr == NULL && size > 0) return newptr;
+
+  if (ptr != NULL) {
+    item *it = dealloc(list, ptr);
+    if (it) n_freeb += it->size;
+  }
+  if (newptr != NULL) alloc(list, newptr, size);
   return newptr;
 }
 

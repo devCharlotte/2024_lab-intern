@@ -120,15 +120,20 @@ void *calloc(size_t nmemb, size_t size) {
 
 void *realloc(void *ptr, size_t size) {
   if (silent) return reallocp(ptr, size);
+
+  void *newptr = reallocp(ptr, size);
+  n_realloc++;
+  n_allocb += size;
+  LOG_REALLOC(ptr, size, newptr);
+
+  // 실패한 경우(size > 0 인데 NULL)에는 원래 블록이 그대로 살아 있음
+  if (newptr == NULL && size > 0) return newptr;
+
   if (ptr) {  // part2
     item *it = dealloc(list, ptr);
     if (it) n_freeb += it->size;
   }
-  void *newptr = reallocp(ptr, size);
-  n_realloc++;
-  n_allocb += size;
   if (newptr) alloc(list, newptr, size);
-  LOG_REALLOC(ptr, size, newptr);
   return newptr;
 }
 
