@@ -1,9 +1,17 @@
+KDIR ?= /lib/modules/$(shell uname -r)/build
+
 obj-m := dbfs_ptree.o
 
+.PHONY: all insmod rmmod clean
+
 all :
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules;
+	$(MAKE) -C $(KDIR) M=$(CURDIR) modules
+
+insmod :
 	sudo insmod dbfs_ptree.ko
 
+rmmod :
+	sudo rmmod dbfs_ptree
+
 clean :
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean;
-	sudo rmmod dbfs_ptree.ko
+	$(MAKE) -C $(KDIR) M=$(CURDIR) clean

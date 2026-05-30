@@ -3,7 +3,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
-#include <assert.h>
 #include <sys/mman.h>
 
 #define DBFS_FILE_PATH  "/sys/kernel/debug/paddr/output"
@@ -18,33 +17,48 @@ struct packet {
 int main(void)
 {
         int fd, mem, ret;
+        void *vaddr;
         struct packet pckt;
 
+        // 물리주소 PADDR 페이지를 내 주소공간에 매핑 (root 필요)
         mem = open("/dev/mem", O_RDWR);
+        if (mem < 0) {
+                perror("open /dev/mem");
+                return 1;
+        }
+
+        vaddr = mmap(NULL, sizeof(unsigned long), PROT_READ | PROT_WRITE, MAP_SHARED, mem, PADDR);
+        if (vaddr == MAP_FAILED) {
+                perror("mmap");
+                close(mem);
+                return 1;
+        }
 
         pckt.pid = getpid();
-        pckt.vaddr = (unsigned long)mmap(NULL, sizeof(unsigned long), PROT_READ | PROT_WRITE, MAP_SHARED, mem, PADDR);
+        pckt.vaddr = (unsigned long)vaddr;
         pckt.paddr = 0;
 
-        fd = open(DBFS_FILE_PATH, O_RDWR);
-
+        fd = open(DBFS_FILE_PATH, O_RDONLY);
         if (fd < 0) {
-                printf("debugfs file open error\n");
-                exit(-1);
+                perror("open " DBFS_FILE_PATH);
+                return 1;
         }
 
         ret = read(fd, &pckt, sizeof(struct packet));
-
         if (ret < 0) {
-                printf("debugfs input file write failed\n");
-                exit(-1);
+                perror("read");
+                return 1;
         }
 
-        assert(pckt.paddr == PADDR);
-        printf("[TEST CASE]    PASS\n");
+        printf("vaddr 0x%lx -> paddr 0x%lx\n", pckt.vaddr, pckt.paddr);
+        if (pckt.paddr == PADDR)
+                printf("[TEST CASE]    PASS\n");
+        else
+                printf("[TEST CASE]    FAIL (expected 0x%x)\n", PADDR);
 
         close(fd);
-        munmap((void*)pckt.vaddr, sizeof(unsigned long));
+        munmap(vaddr, sizeof(unsigned long));
+        close(mem);
 
-        return 0;
+        return pckt.paddr == PADDR ? 0 : 1;
 }
